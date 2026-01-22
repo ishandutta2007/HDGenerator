@@ -83,4 +83,6 @@ dmypy.json
 
 # Models
 models/*.onnx
+!models/RealESR_Gx4_fp16.onnx
+
 videos
