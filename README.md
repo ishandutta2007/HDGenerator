@@ -53,6 +53,8 @@ A command-line tool to upscale standard definition (SD) videos to high definitio
     ├── src/
     │   ├── main.py
     │   └── upscaler.py
+    ├── videos/
+    │   └── sample.mp4
     ├── .gitignore
     ├── README.md
     └── requirements.txt
@@ -60,11 +62,13 @@ A command-line tool to upscale standard definition (SD) videos to high definitio
 
 ## 🚀 Usage
 
-Run the script from the root directory of the project using the following command:
+Run the script from the root directory of the project. For example, to upscale the sample video provided in the `videos` folder, use the following command:
 
 ```bash
-python src/main.py --input path/to/your/video.mp4 --output path/to/your/upscaled_video.mp4
+python src/main.py --input "videos/sample.mp4"
 ```
+
+This will save the upscaled video in the `videos` directory with a `_upscaled` suffix.
 
 ### Arguments:
 

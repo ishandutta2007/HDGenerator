@@ -2,75 +2,97 @@ import cv2
 import numpy as np
 import onnxruntime as ort
 from tqdm import tqdm
+import moviepy.editor as mp
 
-def upscale_frame(session, frame):
+def upscale_frame(session, frame_rgb):
     """
     Upscales a single video frame using the ONNX model.
-    This is a placeholder and needs to be implemented based on the model's specific input/output format.
+    The frame is expected to be in RGB format.
     """
-    # 1. Pre-process the frame (e.g., normalize, convert to CHW format)
-    #    The model expects a float32 tensor of shape (1, 3, H, W).
-    img = frame.astype(np.float32) / 255.0
+    # Pre-process the frame
+    img = frame_rgb.astype(np.float32) / 255.0
     img = np.transpose(img, (2, 0, 1)) # HWC to CHW
     img = np.expand_dims(img, axis=0) # Add batch dimension
 
-    # 2. Run inference
+    # Run inference
     input_name = session.get_inputs()[0].name
     output_name = session.get_outputs()[0].name
     result = session.run([output_name], {input_name: img})
 
-    # 3. Post-process the output
-    #    The model outputs a float32 tensor of shape (1, 3, H_out, W_out).
-    output_img = np.squeeze(result[0])
-    output_img = np.transpose(output_img, (1, 2, 0)) # CHW to HWC
-    output_img = np.clip(output_img * 255.0, 0, 255).astype(np.uint8)
+    # Post-process the output
+    output_img_rgb = np.squeeze(result[0])
+    output_img_rgb = np.transpose(output_img_rgb, (1, 2, 0)) # CHW to HWC
+    output_img_rgb = np.clip(output_img_rgb * 255.0, 0, 255).astype(np.uint8)
 
-    return output_img
+    return output_img_rgb
 
 def upscale_video(video_path, output_path, model_path):
     """
-    Upscales a video file by processing each frame with the ONNX model.
+    Upscales a video file by processing each frame with the ONNX model
+    and combines it with the original audio.
     """
     # Load the ONNX model
     print("Loading ONNX model...")
     session = ort.InferenceSession(model_path, providers=['CPUExecutionProvider'])
     print("Model loaded.")
 
-    # Open the input video
+    # Load original video to get audio
+    print("Loading original video for audio extraction...")
+    original_clip = mp.VideoFileClip(video_path)
+    audio_clip = original_clip.audio
+    print("Audio extracted.")
+
+    # Open the input video with OpenCV for frame processing
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
-        raise IOError("Cannot open input video file")
+        raise IOError("Cannot open input video file with OpenCV")
 
-    # Get video properties
-    fourcc = cv2.VideoWriter_fourcc(*'mp4v') # Or use the original video's codec
-    fps = cap.get(cv2.CAP_PROP_FPS)
-    frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-    frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    fps = cap.get(cv2.CAP_PROP_FPS)
 
-    # Placeholder: Determine output dimensions. RealESRGAN scales by 4x.
-    output_width = frame_width * 4
-    output_height = frame_height * 4
-
-    # Create video writer
-    out = cv2.VideoWriter(output_path, fourcc, fps, (output_width, output_height))
-
+    upscaled_frames = []
     print(f"Processing {total_frames} frames...")
     with tqdm(total=total_frames, unit='frame') as pbar:
         while True:
-            ret, frame = cap.read()
+            ret, frame_bgr = cap.read()
             if not ret:
                 break
 
-            # Upscale frame
-            upscaled_frame = upscale_frame(session, frame)
+            # Convert frame from BGR (OpenCV default) to RGB (MoviePy/ONNX standard)
+            frame_rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
 
-            # Write the upscaled frame to the output video
-            out.write(upscaled_frame)
+            # Upscale frame
+            upscaled_frame_rgb = upscale_frame(session, frame_rgb)
+            upscaled_frames.append(upscaled_frame_rgb)
             pbar.update(1)
 
-    # Release everything
     cap.release()
-    out.release()
     cv2.destroyAllWindows()
+
+    if not upscaled_frames:
+        print("No frames were upscaled. Aborting.")
+        return
+
+    print("Creating new video clip from upscaled frames...")
+    # Create new video clip from the upscaled frames
+    new_clip = mp.ImageSequenceClip(upscaled_frames, fps=fps)
+
+    print("Attaching original audio to the new video clip...")
+    # Set the audio from the original clip to the new clip
+    final_clip = new_clip.set_audio(audio_clip)
+
+    print(f"Writing final video to {output_path}...")
+    # Write the final video file, specifying codecs to ensure compatibility
+    final_clip.write_videofile(
+        output_path,
+        codec='libx264',
+        audio_codec='aac',
+        temp_audiofile='temp-audio.m4a',
+        remove_temp=True,
+        threads=4, # Add some threading for speed
+        logger='bar' # Show moviepy's progress bar
+    )
+
+    original_clip.close()
+    final_clip.close()
     print("Video processing finished.")
