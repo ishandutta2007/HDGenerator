@@ -3,6 +3,7 @@ import numpy as np
 import onnxruntime as ort
 from tqdm import tqdm
 import moviepy.editor as mp
+import os
 
 def upscale_frame(session, frame_rgb):
     """
@@ -36,6 +37,15 @@ def upscale_video(video_path, output_path, model_path):
     session = ort.InferenceSession(model_path, providers=['CPUExecutionProvider'])
     print("Model loaded.")
 
+    # Create directories for saving frames
+    base_output_path = os.path.splitext(output_path)[0]
+    input_frames_path = f"{base_output_path}_input_frames"
+    upscaled_frames_path = f"{base_output_path}_upscaled_frames"
+    os.makedirs(input_frames_path, exist_ok=True)
+    os.makedirs(upscaled_frames_path, exist_ok=True)
+    print(f"Input frames will be saved to: {input_frames_path}")
+    print(f"Upscaled frames will be saved to: {upscaled_frames_path}")
+
     # Load original video to get audio
     print("Loading original video for audio extraction...")
     original_clip = mp.VideoFileClip(video_path)
@@ -53,16 +63,27 @@ def upscale_video(video_path, output_path, model_path):
     upscaled_frames = []
     print(f"Processing {total_frames} frames...")
     with tqdm(total=total_frames, unit='frame') as pbar:
+        frame_num = 0
         while True:
             ret, frame_bgr = cap.read()
             if not ret:
                 break
+
+            frame_num += 1
+
+            # Save input frame
+            cv2.imwrite(os.path.join(input_frames_path, f"frame_{frame_num:05d}.png"), frame_bgr)
 
             # Convert frame from BGR (OpenCV default) to RGB (MoviePy/ONNX standard)
             frame_rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
 
             # Upscale frame
             upscaled_frame_rgb = upscale_frame(session, frame_rgb)
+
+            # Save upscaled frame
+            upscaled_frame_bgr = cv2.cvtColor(upscaled_frame_rgb, cv2.COLOR_RGB2BGR)
+            cv2.imwrite(os.path.join(upscaled_frames_path, f"frame_{frame_num:05d}.png"), upscaled_frame_bgr)
+
             upscaled_frames.append(upscaled_frame_rgb)
             pbar.update(1)
 
